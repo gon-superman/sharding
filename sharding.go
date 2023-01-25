@@ -97,31 +97,55 @@ type Config struct {
 	//		return nodes[tableIdx].Generate().Int64()
 	//	}
 	PrimaryKeyGeneratorFn func(tableIdx int64) int64
+
 }
 
-func Register(config Config, tables ...interface{}) *Sharding {
-	return &Sharding{
-		_config: config,
-		_tables: tables,
-	}
-}
+//func Register(config Config, tables ...interface{}) *Sharding {
+//	return &Sharding{
+//		_config: config,
+//		_tables: tables,
+//	}
+//}
 
-func (s *Sharding) compile() error {
+
+func Register(s *Sharding,config Config, tables ...interface{}) *Sharding {
+
 	if s.configs == nil {
 		s.configs = make(map[string]Config)
 	}
-	for _, table := range s._tables {
+
+	for _, table := range tables {
 		if t, ok := table.(string); ok {
-			s.configs[t] = s._config
+			s.configs[t] = config
 		} else {
 			stmt := &gorm.Statement{DB: s.DB}
 			if err := stmt.Parse(table); err == nil {
-				s.configs[stmt.Table] = s._config
+				s.configs[stmt.Table] = config
 			} else {
-				return err
+				//return err
 			}
 		}
 	}
+
+	return s
+}
+
+func (s *Sharding) compile() error {
+	//if s.configs == nil {
+	//	s.configs = make(map[string]Config)
+	//}
+	//for _, table := range s._tables {
+	//	if t, ok := table.(string); ok {
+	//		s.configs[t] = s._config
+	//	} else {
+	//		stmt := &gorm.Statement{DB: s.DB}
+	//		if err := stmt.Parse(table); err == nil {
+	//			s.configs[stmt.Table] = s._config
+	//		} else {
+	//			return err
+	//		}
+	//	}
+	//}
 
 	for t, c := range s.configs {
 		if c.NumberOfShards > 1024 && c.PrimaryKeyGenerator == PKSnowflake {
@@ -509,6 +533,9 @@ func (s *Sharding) nonInsertValue(key string, condition sqlparser.Expr, args ...
 
 	return
 }
+
+
+
 
 func replaceOrderByTableName(orderBy []*sqlparser.OrderingTerm, oldName, newName string) []*sqlparser.OrderingTerm {
 	for i, term := range orderBy {
