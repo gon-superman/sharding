@@ -59,7 +59,7 @@ type Config struct {
 	//		}
 	//		return "", errors.New("invalid user_id")
 	// 	}
-	ShardingAlgorithm func(columnValue interface{}) (suffix string, err error)
+	ShardingAlgorithm func(columnValue []interface{}) (suffix string, err error)
 
 	// ShardingSuffixs specifies a function to generate all table's suffix.
 	// Used to support Migrator.
@@ -108,7 +108,7 @@ type Config struct {
 //}
 
 
-func Register(s *Sharding,config Config, tables ...interface{}) *Sharding {
+func (s *Sharding) Register(config Config, tables ...interface{}) *Sharding {
 
 	if s.configs == nil {
 		s.configs = make(map[string]Config)
@@ -186,9 +186,9 @@ func (s *Sharding) compile() error {
 			} else if c.NumberOfShards < 10000 {
 				c.tableFormat = "_%04d"
 			}
-			c.ShardingAlgorithm = func(value interface{}) (suffix string, err error) {
+			c.ShardingAlgorithm = func(value []interface{}) (suffix string, err error) {
 				id := 0
-				switch value := value.(type) {
+				switch value := value[0].(type) {
 				case int:
 					id = value
 				case int64:
@@ -210,7 +210,10 @@ func (s *Sharding) compile() error {
 		if c.ShardingSuffixs == nil {
 			c.ShardingSuffixs = func() (suffixs []string) {
 				for i := 0; i < int(c.NumberOfShards); i++ {
-					suffix, err := c.ShardingAlgorithm(i)
+					value := make([]interface{},1)
+					value = append(value,i)
+
+					suffix, err := c.ShardingAlgorithm(value)
 					if err != nil {
 						return nil
 					}
@@ -350,7 +353,7 @@ func (s *Sharding) resolve(query string, args ...interface{}) (ftQuery, stQuery,
 	if isInsert {
 		var newTable *sqlparser.TableName
 		for _, inserExpression := range inserExpressions {
-			var value interface{}
+			var value []interface{}
 			var id int64
 			var keyFind bool
 			columnNames := insertNames
@@ -405,7 +408,7 @@ func (s *Sharding) resolve(query string, args ...interface{}) (ftQuery, stQuery,
 		stQuery = insertStmt.String()
 
 	} else {
-		var value interface{}
+		var value []interface{}
 		var id int64
 		var keyFind bool
 		value, id, keyFind, err = s.nonInsertValue(r.ShardingKey, condition, args...)
@@ -440,7 +443,7 @@ func (s *Sharding) resolve(query string, args ...interface{}) (ftQuery, stQuery,
 	return
 }
 
-func getSuffix(value interface{}, id int64, keyFind bool, r Config) (suffix string, err error) {
+func getSuffix(value []interface{}, id int64, keyFind bool, r Config) (suffix string, err error) {
 	if keyFind {
 		suffix, err = r.ShardingAlgorithm(value)
 		if err != nil {
@@ -456,25 +459,31 @@ func getSuffix(value interface{}, id int64, keyFind bool, r Config) (suffix stri
 	return
 }
 
-func (s *Sharding) insertValue(key string, names []*sqlparser.Ident, exprs []sqlparser.Expr, args ...interface{}) (value interface{}, id int64, keyFind bool, err error) {
+func (s *Sharding) insertValue(key string, names []*sqlparser.Ident, exprs []sqlparser.Expr, args ...interface{}) (value []interface{}, id int64, keyFind bool, err error) {
 	if len(names) != len(exprs) {
 		return nil, 0, keyFind, errors.New("column names and expressions mismatch")
 	}
+	//keyArr := strings.Split(key,",")
 
 	for i, name := range names {
-		if name.Name == key {
+		//if name.Name == key {
+		if strings.Contains(key,name.Name){
+
 			switch expr := exprs[i].(type) {
-			case *sqlparser.BindExpr:
-				value = args[expr.Pos]
-			case *sqlparser.StringLit:
-				value = expr.Value
-			case *sqlparser.NumberLit:
-				value = expr.Value
-			default:
-				return nil, 0, keyFind, sqlparser.ErrNotImplemented
+				case *sqlparser.BindExpr:
+					//value = args[expr.Pos]
+					value = append(value,args[expr.Pos])
+				case *sqlparser.StringLit:
+					//value = expr.Value
+					value = append(value,expr.Value)
+				case *sqlparser.NumberLit:
+					//value = expr.Value
+					value = append(value,expr.Value)
+				default:
+					return nil, 0, keyFind, sqlparser.ErrNotImplemented
 			}
 			keyFind = true
-			break
+			//break
 		}
 	}
 	if !keyFind {
@@ -484,19 +493,23 @@ func (s *Sharding) insertValue(key string, names []*sqlparser.Ident, exprs []sql
 	return
 }
 
-func (s *Sharding) nonInsertValue(key string, condition sqlparser.Expr, args ...interface{}) (value interface{}, id int64, keyFind bool, err error) {
+func (s *Sharding) nonInsertValue(key string, condition sqlparser.Expr, args ...interface{}) (value []interface{}, id int64, keyFind bool, err error) {
 	err = sqlparser.Walk(sqlparser.VisitFunc(func(node sqlparser.Node) error {
 		if n, ok := node.(*sqlparser.BinaryExpr); ok {
 			if x, ok := n.X.(*sqlparser.Ident); ok {
-				if x.Name == key && n.Op == sqlparser.EQ {
+				//if x.Name == key && n.Op == sqlparser.EQ {
+				if strings.Contains(key,x.Name) && n.Op == sqlparser.EQ {
 					keyFind = true
 					switch expr := n.Y.(type) {
 					case *sqlparser.BindExpr:
-						value = args[expr.Pos]
+						//value = args[expr.Pos]
+						value = append(value,args[expr.Pos])
 					case *sqlparser.StringLit:
-						value = expr.Value
+						//value = expr.Value
+						value = append(value,expr.Value)
 					case *sqlparser.NumberLit:
-						value = expr.Value
+						//value = expr.Value
+						value = append(value,expr.Value)
 					default:
 						return sqlparser.ErrNotImplemented
 					}
